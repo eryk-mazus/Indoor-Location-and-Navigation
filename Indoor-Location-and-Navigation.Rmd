@@ -1,0 +1,119 @@
+---
+title: "Indoor-Location-and-Navigation"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+goal: predict the floor and waypoint (x, y) at provided timestamps
+
+```{r}
+# init 
+rm(list = ls())
+
+# load packages
+library(tidyverse)
+library(magrittr)
+
+# directories
+dirs <- list(
+  train = './data/train/',
+  test = './data/test/'
+)
+
+```
+
+```{r}
+parse_file <- function(file_path) {
+  
+  # get meta data
+  meta_data <- read_lines(file_path, n_max = 10)
+  path_vec <- str_split(file_path, '/', simplify = T)
+  
+  # getting site_id from file header, because that's how it is stored in the test set
+  site_id <- meta_data[str_detect(meta_data, 'SiteID:')] %>%
+    str_extract(., '^#\\tSiteID\\:(\\w+)') %>%
+    str_sub(., str_locate(., ":")[1]+1, -1)
+  
+  meta <- list(
+    type = path_vec[3],
+    floor_id = path_vec[6],
+    site_id = site_id
+  )
+  
+  # get the trace data 
+  type_2_col_names <- list(
+    "TYPE_WAYPOINT" = list(n_cols = 3, col_names = c('wy_x','wy_y'), chr_cols = NULL),
+    "TYPE_GYROSCOPE" = list(n_cols = 5, col_names = c('tg_x','tg_y','tg_z','tg_a'), chr_cols = NULL),
+    "TYPE_ACCELEROMETER" = list(n_cols = 5, col_names = c('acc_x','acc_y','acc_z','acc_a'), chr_cols = NULL),
+    "TYPE_MAGNETIC_FIELD" = list(n_cols = 5, col_names = c('mf_x','mf_y','mf_z','mf_a'), chr_cols = NULL),
+    "TYPE_ROTATION_VECTOR" = list(n_cols = 5, col_names = c('rv_x','rv_y','rv_z','rv_a'), chr_cols = NULL),
+    "TYPE_ACCELEROMETER_UNCALIBRATED" = list(n_cols = 8, col_names = c('accu_x','accu_y','accu_z','accu_x2','accu_y2','accu_z2','accu_a'), chr_cols = NULL),
+    "TYPE_GYROSCOPE_UNCALIBRATED" = list(n_cols = 8, col_names = c('gyru_x','gyru_y','gyru_z','gyru_x2','gyru_y2','gyru_z2','gyru_a'), chr_cols = NULL),
+    "TYPE_MAGNETIC_FIELD_UNCALIBRATED" = list(n_cols = 8, col_names = c('mfu_x','mfu_y','mfu_z','mfu_x2','mfu_y2','mfu_z2','mfu_a'), chr_cols = NULL),
+    "TYPE_WIFI" = list(n_cols = 6, col_names = c('wf_ssid','wf_bssid','wf_rssi','wf_freq','wf_lst'), chr_cols = c('wf_ssid','wf_bssid'))
+  )
+  
+  process_type_data <- function(type_name, df) {
+    df_type <- df[, 1:type_2_col_names[[type_name]]$n_cols]
+    names(df_type) <- c('id', type_2_col_names[[type_name]]$col_names)
+    
+    if(is.null(type_2_col_names[[type_name]]$chr_cols)) {
+      # change all columns to numeric
+      df_type %<>%
+        mutate_all(as.numeric)
+    } else {
+      # change all to numeric except chr_cols
+      num_cols <- type_2_col_names[[type_name]]$col_names[!(type_2_col_names[[type_name]]$col_names %in% type_2_col_names[[type_name]]$chr_cols)]
+      df_type %<>%
+        mutate_at(num_cols, as.numeric)
+    }
+    
+    return(df_type)
+  }
+  
+  get_type <- function(df, type_name) {
+    return(df %>% filter(V2 == type_name) %>% unnest(c(data)) %>% ungroup %>% select(-V2))
+  }
+
+  df <- read.csv2(file_path, sep="\t", skip=0, stringsAsFactors = FALSE, comment.char = "#", 
+                header=FALSE, col.names = paste0("V", seq_len(9)))
+
+  df_ty <- df %>%
+    group_by(V2) %>%
+    nest() %>%
+    filter(V2 %in% names(type_2_col_names)) %>%
+    transmute(V2, data = map2(.x = V2, .y = data, ~process_type_data(.x , .y)))
+  
+  # way points
+  wp <- get_type(df_ty, 'TYPE_WAYPOINT')
+  
+  # wifi data
+  wifi <- get_type(df_ty, 'TYPE_WIFI')
+  
+  # device
+  dd <- get_type(df_ty, 'TYPE_GYROSCOPE') %>%
+    inner_join(get_type(df_ty, 'TYPE_ACCELEROMETER'), by='id') %>%
+    inner_join(get_type(df_ty, 'TYPE_MAGNETIC_FIELD'), by='id') %>%
+    inner_join(get_type(df_ty, 'TYPE_ROTATION_VECTOR'), by='id') %>%
+    mutate(idsec = round(id/1000))
+  
+  return(list(
+    meta = meta,
+    wp = wp,
+    device = dd, 
+    wifi = wifi
+  ))
+  
+}
+
+tr_files <- list.files(path = dirs$train, recursive = TRUE, pattern = "\\.txt$", full.names = TRUE)
+trace_1 <- parse_file(tr_files[1])
+
+trace_1$meta$site_id
+
+```
+
+
