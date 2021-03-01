@@ -16,17 +16,23 @@ rm(list = ls())
 # load packages
 library(tidyverse)
 library(magrittr)
+library(png)
+library(rjson)
+library(viridis)
+library(gridExtra)
 
 # directories
 dirs <- list(
   train = './data/train/',
-  test = './data/test/'
+  test = './data/test/',
+  metadata = './data/metadata/'
 )
 
 ```
 
 ```{r}
 parse_file <- function(file_path) {
+  print(str_c(' > parsing', file_path, '... '))
   
   # get meta data
   meta_data <- read_lines(file_path, n_max = 10)
@@ -111,9 +117,78 @@ parse_file <- function(file_path) {
 
 tr_files <- list.files(path = dirs$train, recursive = TRUE, pattern = "\\.txt$", full.names = TRUE)
 trace_1 <- parse_file(tr_files[1])
+trace_1$wp
 
-trace_1$meta$site_id
+# trace_1$meta$site_id
+# trace_1$device
 
 ```
+
+```{r, fig.width=15, fig.height=25}
+# visualize paths
+draw_traces_on_floor <- function(traces, site_id, floor_id, n_paths) {
+  img <- readPNG(paste0(dirs$metadata, site_id, "/", floor_id, "/floor_image.png"))
+  floor_info <- fromJSON(file = paste0(dirs$metadata, site_id, "/", floor_id, '/floor_info.json'))
+  
+  floor_image <- list(
+    width  = dim(img)[1],
+    height = dim(img)[2])
+  
+  floor_image$ratio_x <- floor_image$width/floor_info$map_info$width
+  floor_image$ratio_y <- floor_image$height/floor_info$map_info$height
+  
+  trs <- tr_files[str_detect(tr_files, site_id) & str_detect(tr_files, floor_id)] 
+  n_max <- length(trs)
+  
+  if(n_paths > n_max | n_paths == -1) {
+    n_paths <- n_max
+  }
+  
+  trs %<>%
+    sample(., n_paths) %>%
+    enframe() %>%
+    mutate(wps = map(.x = value, ~parse_file(.x)$wp))
+    
+  trs_u <- trs %>%
+    select(-value) %>%
+    unnest(cols = c(wps)) %>%
+    arrange(name, id) %>%
+    mutate(x = wy_x * floor_image$ratio_x,
+           y = wy_y * floor_image$ratio_y)
+  
+  p <- trs_u %>%
+    ggplot() +
+    annotation_raster(img, xmin = 0, xmax = floor_image$width, ymin = 0, ymax = floor_image$height) +
+    # geom_point() +
+    # geom_line() +
+    geom_path(aes(x = x, y = y, colour = factor(name), group = factor(name))) +
+    geom_point(aes(x = x, y = y, colour = factor(name), group = factor(name))) +
+    scale_color_viridis(alpha = 1, begin = 0, end = 1, direction = 1, discrete = TRUE, option = "D") +
+    theme_minimal() +
+    theme(legend.position='none') +
+    xlim(0, floor_image$width) +
+    ylim(0, floor_image$height)
+ 
+  return(p)
+}
+
+site_id <- '5a0546857ecc773753327266'
+floor_vec <- c('B1', 'F1', 'F2', 'F3', 'F4')
+n_paths <- 100
+p <- list()
+
+for(i in seq_along(floor_vec)) {
+  p[[i]] <- draw_traces_on_floor(tr_files, site_id = site_id, floor_id = floor_vec[i], 100)
+}
+
+do.call(grid.arrange, c(p, ncol = 2))
+```
+
+??? :
+
+* are test sites and floors in train set
+* relationships between each sensor data, as well as sensors and waypoints
+* relationship between sensors, waypoints and floor number
+
 
 
