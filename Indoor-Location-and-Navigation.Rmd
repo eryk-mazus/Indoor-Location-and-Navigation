@@ -31,7 +31,7 @@ dirs <- list(
 ```
 
 ```{r}
-parse_file <- function(file_path) {
+parse_file <- function(file_path, type = 'train') {
   print(str_c(' > parsing', file_path, '... '))
   
   # get meta data
@@ -43,11 +43,21 @@ parse_file <- function(file_path) {
     str_extract(., '^#\\tSiteID\\:(\\w+)') %>%
     str_sub(., str_locate(., ":")[1]+1, -1)
   
-  meta <- list(
-    type = path_vec[3],
-    floor_id = path_vec[6],
-    site_id = site_id
-  )
+  if(type == 'train') {
+    meta <- list(
+      type = path_vec[3],
+      floor_id = path_vec[6],
+      site_id = site_id,
+      file_id = path_vec[7]
+    )
+  } else {
+    meta <- list(
+      type = path_vec[3],
+      floor_id = NULL,
+      site_id = site_id,
+      file_id = path_vec[4]
+    )
+  }
   
   # get the trace data 
   type_2_col_names <- list(
@@ -116,12 +126,6 @@ parse_file <- function(file_path) {
 }
 
 tr_files <- list.files(path = dirs$train, recursive = TRUE, pattern = "\\.txt$", full.names = TRUE)
-trace_1 <- parse_file(tr_files[1])
-trace_1$wp
-
-# trace_1$meta$site_id
-# trace_1$device
-
 ```
 
 ```{r, fig.width=15, fig.height=25}
@@ -187,8 +191,65 @@ do.call(grid.arrange, c(p, ncol = 2))
 ??? :
 
 * are test sites and floors in train set
+* are the test traces in the train set as well
+* how to connect waypoint data with sensors data ?
+
+
 * relationships between each sensor data, as well as sensors and waypoints
+** wifi
+** smartphone sensors
+
 * relationship between sensors, waypoints and floor number
+
+```{r}
+# checking what sites are in train and test sets
+# and whether there is any overlap
+te_files <- list.files(path = dirs$test, recursive = TRUE, pattern = "\\.txt$", full.names = TRUE)
+
+df_tr <- tr_files %>%
+  enframe(name = NULL) %>%
+  mutate(path_chunks = str_split(value, '/')) %>%
+  mutate(site_id = map_chr(path_chunks, 5),
+         floor_id = map_chr(path_chunks, 6),
+         path_id = map_chr(path_chunks, 7)) %>%
+  mutate(path_id = str_trim(str_replace(path_id, '.txt', ''))) %>%
+  select(-path_chunks, -value)
+
+df_te <- te_files %>%
+  enframe(name = NULL) %>%
+  mutate(meta = map(.x = value, ~parse_file(.x, 'test')$meta)) %>%
+  mutate(site_id = map_chr(meta, function(x) x$site_id),
+         path_id = map_chr(meta, function(x) x$file_id)) %>%
+  mutate(path_id = str_trim(str_replace(path_id, '.txt', ''))) %>%
+  select(-meta, -value)
+
+# takes long to genereate these, so I save them jic
+# write.csv(df_tr, './temp/train_data_meta.csv', row.names = FALSE)
+# write.csv(df_te, './temp/test_data_meta.csv', row.names = FALSE)
+
+tr_sites_vec <- df_tr %>%
+  select(site_id) %>%
+  unique() %>%
+  pull()
+
+te_sites_vec <- df_te %>%
+  select(site_id) %>%
+  unique() %>%
+  pull()
+  
+df_te %>%
+  select(site_id) %>%
+  unique() %>%
+  mutate(is_in_tr = site_id %in% tr_sites_vec) %>%
+  count(is_in_tr)
+```
+
+Training set: 204 sites
+Test set: 24 sites
+All test sites are in training set
+None of the paths are in the test set
+
+
 
 
 
