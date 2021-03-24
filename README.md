@@ -1,2 +1,2 @@
 # Indoor-Location-and-Navigation
-Kaggle competition
+Kaggle competition, WIP
